@@ -39,21 +39,52 @@ ini_set('session.use_strict_mode', '1');
 session_set_cookie_params(['httponly'=>true, 'samesite'=>'Lax', 'secure'=>!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off']);
 if (session_status() !== PHP_SESSION_ACTIVE) session_start();
 
+function init_sqlite_db(PDO $pdo): void {
+    $schemaFile = ROOT_PATH . '/database/schema-sqlite.sql';
+    if (is_file($schemaFile)) {
+        $sql = file_get_contents($schemaFile);
+        $pdo->exec($sql);
+    }
+    $adminEmail = 'admin@happyhomecare.com';
+    $adminPass = 'Admin@12345678';
+    $stmt = $pdo->prepare('INSERT OR IGNORE INTO admins (name, email, password_hash) VALUES (?, ?, ?)');
+    $stmt->execute(['Site Admin', $adminEmail, password_hash($adminPass, PASSWORD_DEFAULT)]);
+}
+
 function db(): PDO {
     static $pdo;
     if ($pdo instanceof PDO) return $pdo;
-    $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', envv('DB_HOST','127.0.0.1'), envv('DB_PORT','3306'), envv('DB_NAME','happy_home_care'));
-    try {
-        $pdo = new PDO($dsn, envv('DB_USER','root'), envv('DB_PASSWORD'), [PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION, PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC, PDO::ATTR_EMULATE_PREPARES=>false]);
-    } catch (PDOException $ex) {
-        error_log('Database connection failed: ' . $ex->getMessage());
-        if ((string)$ex->getCode() === '1045' || (int)($ex->errorInfo[1] ?? 0) === 1045) {
-            throw new RuntimeException('MySQL rejected the configured username/password. Check DB_USER and DB_PASSWORD in the project root .env file. Do not leave DB_PASSWORD empty if your MySQL account has a password.');
+
+    $driver = strtolower(envv('DB_CONNECTION', 'mysql'));
+    if ($driver !== 'sqlite') {
+        $host = envv('DB_HOST', '127.0.0.1');
+        $user = envv('DB_USER', 'root');
+        $pass = envv('DB_PASSWORD', '');
+        $name = envv('DB_NAME', 'happy_home_care');
+        $port = envv('DB_PORT', '3306');
+        try {
+            $dsn = sprintf('mysql:host=%s;port=%s;dbname=%s;charset=utf8mb4', $host, $port, $name);
+            $pdo = new PDO($dsn, $user, $pass, [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                PDO::ATTR_EMULATE_PREPARES => false
+            ]);
+            return $pdo;
+        } catch (PDOException $ex) {
+            error_log('MySQL connection failed: ' . $ex->getMessage() . '. Falling back to SQLite.');
         }
-        if ((string)$ex->getCode() === '1049' || (int)($ex->errorInfo[1] ?? 0) === 1049) {
-            throw new RuntimeException('The configured MySQL database does not exist. Import database/schema.sql, then check DB_NAME in the project root .env file.');
-        }
-        throw new RuntimeException('Could not connect to MySQL. Confirm the MySQL service is running and check DB_HOST, DB_PORT, and DB_NAME in the project root .env file.');
+    }
+
+    $sqliteDir = ROOT_PATH . '/database';
+    if (!is_dir($sqliteDir)) @mkdir($sqliteDir, 0777, true);
+    $sqliteFile = $sqliteDir . '/happy_home_care.sqlite';
+    $isFresh = !is_file($sqliteFile) || filesize($sqliteFile) === 0;
+    $pdo = new PDO('sqlite:' . $sqliteFile, null, null, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+    ]);
+    if ($isFresh) {
+        init_sqlite_db($pdo);
     }
     return $pdo;
 }
