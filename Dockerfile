@@ -16,10 +16,6 @@ RUN sed -ri -e 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.c
 WORKDIR /var/www/html
 COPY . /var/www/html/
 
-# Make entrypoint executable
-COPY entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+EXPOSE 80
 
-EXPOSE 80 8080 10000
-
-ENTRYPOINT ["entrypoint.sh"]
+CMD ["sh", "-c", "sed -i \"s/Listen 80/Listen ${PORT:-80}/g\" /etc/apache2/ports.conf && sed -i \"s/:80/:${PORT:-80}/g\" /etc/apache2/sites-available/000-default.conf && (php /var/www/html/bin/init_cloud.php || true) && apache2-foreground"]
