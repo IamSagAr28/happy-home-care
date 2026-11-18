@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="600" height="80" viewBox="0 0 600 80">
+<style>
+  .tagline-text {
+    font-family: 'DM Sans', 'Manrope', 'Mukta', 'Noto Sans Devanagari', 'Noto Sans Gurmukhi', sans-serif;
+    font-weight: 700;
+    font-size: 20px;
+    fill: #00466e;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+  }
+</style>
+<text x="0" y="48" class="tagline-text">ELEVATED CARE. RIGHT AT HOME.</text>
+</svg>

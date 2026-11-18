@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: happy-home-care
+    runtime: docker
+    plan: free
+    region: oregon
+    branch: main
+    envVars:
+      - key: DB_CONNECTION
+        value: sqlite
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
