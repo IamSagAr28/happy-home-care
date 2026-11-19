@@ -183,3 +183,8 @@ body{color:var(--azure);background:#fff}
  .resource-page{padding:28px 0 56px}.resource-detail{width:calc(100% - 28px);border-radius:19px}.resource-back{margin-left:20px}.resource-detail-head{padding:25px 21px}.resource-detail-head h1{font-size:32px}.resource-detail-head p{font-size:13px}.resource-detail-content{padding:25px 21px 8px}.resource-detail-content p,.resource-detail-content li{font-size:14px}.resource-detail-content h4{font-size:18px}.resource-detail-cta{margin-left:21px}.floating-contact{right:13px;bottom:13px;gap:8px}.quick-contact{width:54px;min-width:54px;height:54px;padding:0 15px}.quick-contact:hover,.quick-contact:focus-visible{width:195px;min-width:195px;gap:12px}.quick-contact:hover span,.quick-contact:focus-visible span{width:129px}.quick-request{display:flex}
 }
 .translation-status{position:fixed;z-index:1000;left:16px;bottom:16px;max-width:min(420px,calc(100vw - 32px));padding:10px 14px;border:1px solid #45d7ca;border-radius:12px;background:#fff;color:#00466e;box-shadow:0 8px 24px #00466e22;font-size:13px}
+/* Keep outline CTA text readable on the light public sections in its resting state. */
+.button.button-outline{background:#fff;color:var(--azure);border-color:var(--azure)}
+.services .button.button-outline{background:#fff;color:var(--azure);border-color:var(--turquoise)}
+.button.button-outline:hover,.services .button.button-outline:hover{background:var(--turquoise);color:var(--azure);border-color:var(--turquoise)}
+
