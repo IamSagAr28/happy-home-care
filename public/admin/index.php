@@ -28,8 +28,24 @@ if ($_SERVER['REQUEST_METHOD']==='POST') {
         foreach ($module['fields'] as $key=>$meta) if ($meta[1]!=='checkbox' && !in_array($key,['photo_url','body','button_label'],true) && $data[$key]==='') throw new InvalidArgumentException($meta[0] . ' is required.');
         if ($page==='testimonials' && isset($data['rating'])) { $r = (int)$data['rating']; if ($r < 1 || $r > 5) throw new InvalidArgumentException('Rating must be a whole number between 1 and 5.'); $data['rating'] = (string)$r; }
         $id=(int)($_POST['id']??0); $columns=array_keys($data);
-        if ($id) { $set=implode(',',array_map(fn($c)=>"`$c`=?",$columns)); $stmt=db()->prepare("UPDATE `{$module['table']}` SET $set WHERE id=?"); $stmt->execute([...array_values($data),$id]); flash('Changes saved.'); }
-        else { $cols=implode(',',array_map(fn($c)=>"`$c`",$columns)); $marks=implode(',',array_fill(0,count($columns),'?')); $stmt=db()->prepare("INSERT INTO `{$module['table']}` ($cols) VALUES ($marks)"); $stmt->execute(array_values($data)); flash('Item added.'); }
+        if ($id) { $set=implode(',',array_map(fn($c)=>"`$c`=?",$columns)); $stmt=db()->prepare("UPDATE `{$module['table']}` SET $set WHERE id=?"); $stmt->execute([...array_values($data),$id]); flash('Changes saved.');
+          foreach (['hi', 'pa', 'es'] as $tLang) {
+              foreach ($data as $fKey => $fVal) {
+                  if (is_string($fVal) && strlen(trim($fVal)) > 1 && !in_array($fKey, ['slug', 'icon', 'rating', 'active', 'published'], true)) {
+                      @dynamic_translate($fVal, $tLang);
+                  }
+              }
+          }
+        }
+        else { $cols=implode(',',array_map(fn($c)=>"`$c`",$columns)); $marks=implode(',',array_fill(0,count($columns),'?')); $stmt=db()->prepare("INSERT INTO `{$module['table']}` ($cols) VALUES ($marks)"); $stmt->execute(array_values($data)); flash('Item added.');
+          foreach (['hi', 'pa', 'es'] as $tLang) {
+              foreach ($data as $fKey => $fVal) {
+                  if (is_string($fVal) && strlen(trim($fVal)) > 1 && !in_array($fKey, ['slug', 'icon', 'rating', 'active', 'published'], true)) {
+                      @dynamic_translate($fVal, $tLang);
+                  }
+              }
+          }
+        }
       } elseif ($action==='delete_content' && isset($modules[$page])) {
         $stmt=db()->prepare("DELETE FROM `{$modules[$page]['table']}` WHERE id=?"); $stmt->execute([(int)($_POST['id']??0)]); flash('Item removed.');
       } elseif ($action==='update_status' && in_array($page,['inquiries','applications'],true)) {

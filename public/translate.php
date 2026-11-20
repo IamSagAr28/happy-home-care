@@ -396,57 +396,16 @@ foreach ($clean as $idx => $str) {
     $missingTexts[] = $trimmed;
 }
 
-// 2. Batch-translate all missing texts in ONE single HTTP call (instead of 100 sequential calls)
+// 2. Translate all missing texts with clients5 / dynamic_translate engine
 if (!empty($missingTexts)) {
-    // Process in chunks of up to 30 items
-    $chunks = array_chunk($missingTexts, 30);
-    $idxOffset = 0;
-    
-    foreach ($chunks as $chunk) {
-        $joined = implode("\n\n", $chunk);
-        $url = 'https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=en&tl=' . rawurlencode($target) . '&dt=t&q=' . rawurlencode($joined);
-        
-        $translated = null;
-        if (function_exists('curl_init')) {
-            $ch = curl_init($url);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 4,
-                CURLOPT_CONNECTTIMEOUT => 2,
-                CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36',
-                CURLOPT_SSL_VERIFYPEER => false,
-            ]);
-            $resp = curl_exec($ch);
-            $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_close($ch);
-            if ($resp !== false && $code >= 200 && $code < 400) {
-                $data = json_decode((string)$resp, true);
-                if (is_array($data) && isset($data[0]) && is_array($data[0])) {
-                    $parts = [];
-                    foreach ($data[0] as $part) {
-                        if (isset($part[0]) && is_string($part[0])) $parts[] = $part[0];
-                    }
-                    if (!empty($parts)) $translated = implode('', $parts);
-                }
-            }
-        }
-        
-        $translatedLines = ($translated !== null) ? explode("\n\n", $translated) : [];
-        
-        foreach ($chunk as $cIdx => $origStr) {
-            $destIdx = $missingIndices[$idxOffset + $cIdx];
-            $trans = (isset($translatedLines[$cIdx]) && trim($translatedLines[$cIdx]) !== '') ? trim($translatedLines[$cIdx]) : $origStr;
-            $results[$destIdx] = $trans;
-            
-            // Save to disk cache
-            $cKey = $target . ':' . md5($origStr);
-            $diskCache[$cKey] = $trans;
-        }
-        $idxOffset += count($chunk);
+    foreach ($missingTexts as $mIdx => $origStr) {
+        $destIdx = $missingIndices[$mIdx];
+        $trans = dynamic_translate($origStr, $target);
+        $results[$destIdx] = ($trans !== '') ? $trans : $origStr;
+        $cKey = $target . ':' . md5($origStr);
+        $diskCache[$cKey] = $results[$destIdx];
     }
-    
-    // Write updated disk cache
-    @file_put_contents($cacheFile, json_encode($diskCache, JSON_UNESCAPED_UNICODE), LOCK_EX);
+    @file_put_contents($cacheFile, json_encode($diskCache, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
 }
 
 ksort($results);

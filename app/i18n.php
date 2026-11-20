@@ -667,14 +667,14 @@ function dynamic_translate(string $text, string $target): string {
 
     $translated = null;
 
-    // 1. Google Translate engine (client=dict-chrome-ex)
-    $url = 'https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=en&tl=' . rawurlencode($target) . '&dt=t&q=' . rawurlencode($clean);
+    // 1. Primary: Google Translate clients5 API (fast, reliable, unblocked)
+    $c5Url = 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=' . rawurlencode($target) . '&q=' . rawurlencode($clean);
     $response = false;
     if (function_exists('curl_init')) {
-        $ch = curl_init($url);
+        $ch = curl_init($c5Url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 4,
+            CURLOPT_TIMEOUT => 3,
             CURLOPT_CONNECTTIMEOUT => 2,
             CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             CURLOPT_SSL_VERIFYPEER => false,
@@ -690,27 +690,17 @@ function dynamic_translate(string $text, string $target): string {
         $ctx = stream_context_create([
             'http' => [
                 'method' => 'GET',
-                'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
-",
-                'timeout' => 4,
+                'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)\r\n",
+                'timeout' => 3,
                 'ignore_errors' => true,
             ]
         ]);
-        $response = @file_get_contents($url, false, $ctx);
+        $response = @file_get_contents($c5Url, false, $ctx);
     }
-
     if ($response !== false) {
         $data = json_decode((string)$response, true);
-        if (is_array($data) && isset($data[0]) && is_array($data[0])) {
-            $parts = [];
-            foreach ($data[0] as $part) {
-                if (isset($part[0]) && is_string($part[0])) {
-                    $parts[] = $part[0];
-                }
-            }
-            if (!empty($parts)) {
-                $translated = implode('', $parts);
-            }
+        if (is_array($data) && isset($data[0]) && is_string($data[0]) && trim($data[0]) !== '') {
+            $translated = trim($data[0]);
         }
     }
 
@@ -722,8 +712,8 @@ function dynamic_translate(string $text, string $target): string {
             $ch = curl_init($myMemoryUrl);
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_TIMEOUT => 5,
-                CURLOPT_CONNECTTIMEOUT => 3,
+                CURLOPT_TIMEOUT => 4,
+                CURLOPT_CONNECTTIMEOUT => 2,
                 CURLOPT_USERAGENT => 'Mozilla/5.0',
                 CURLOPT_SSL_VERIFYPEER => false,
             ]);
@@ -754,7 +744,6 @@ function dynamic_translate(string $text, string $target): string {
     return $text;
 }
 }
-
 
 if (!function_exists('tr_service_title')) {
 function tr_service_title(string $title): string {

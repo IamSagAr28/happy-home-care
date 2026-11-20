@@ -5,38 +5,32 @@
   let language = supported.has(queryLanguage) ? queryLanguage : (supported.has(document.documentElement.lang) ? document.documentElement.lang : 'en');
   if (select) select.value = language;
 
-  const skip = 'script,style,noscript,svg,canvas,select,option,textarea,[translate="no"],.notranslate,[data-translate-exclude],.language-switch,.auth-language,.admin-language';
-  const cachePrefix = 'hhc-google-translate-v3:';
-  let applying = false;
-  let notice;
-  let originalTitle = document.title;
+  const skip = 'script,style,noscript,svg,canvas,select,option,textarea,[translate="no"],.notranslate,[data-translate-exclude],.language-switch,.auth-language,.admin-language,.brand-logo-window,.brand-logo';
+  const cachePrefix = 'hhc-dyn-tr-v4:';
+  let running = false;
 
-  const brandAlt = {
-    en: 'Happy Home Care - Elevated Care. Right At Home.',
-    pa: 'Happy Home Care - Elevated Care. Right At Home.',
-    hi: 'Happy Home Care - Elevated Care. Right At Home.',
-    es: 'Happy Home Care - Elevated Care. Right At Home.'
-  };
+  const protectedBrandTerms = new Set([
+    'happy home care',
+    'elevated care. right at home.',
+    'elevated care. right at home',
+    'mail2rakeshpandit@gmail.com',
+    '+91 81440 01842',
+    '918144001842'
+  ]);
 
-  function updateBrandLogos(target) {
-    // Keep the official brand logo fixed without translating
+  function isBrandProtected(str) {
+    if (!str) return true;
+    const lower = str.trim().toLowerCase();
+    return protectedBrandTerms.has(lower);
+  }
+
+  function updateBrandLogos() {
     document.querySelectorAll('[data-brand-logo], .brand-logo').forEach(img => {
       if (img.tagName && img.tagName.toLowerCase() === 'img') {
         img.src = '/images/hhc-approved-logo.svg';
         img.alt = 'Happy Home Care - Elevated Care. Right At Home.';
       }
     });
-  }
-
-  function setNotice(message) {
-    if (!notice) {
-      notice = document.createElement('div');
-      notice.className = 'translation-status';
-      notice.setAttribute('role', 'status');
-      document.body.appendChild(notice);
-    }
-    notice.textContent = message;
-    notice.hidden = !message;
   }
 
   function isExcluded(element) {
@@ -49,140 +43,178 @@
     return (h >>> 0).toString(36);
   }
 
-  function collect() {
-    const records = [];
-    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      const node = walker.currentNode;
-      if (isExcluded(node.parentElement) || !node.nodeValue.trim()) continue;
-      if (!node.__hhcOriginal) node.__hhcOriginal = node.nodeValue;
-      records.push({ node, original: node.__hhcOriginal, set: value => { node.nodeValue = value; } });
-    }
-    document.body.querySelectorAll('input[placeholder],img[alt],*[title],*[aria-label]').forEach(element => {
-      if (isExcluded(element)) return;
-      for (const attribute of ['placeholder', 'alt', 'title', 'aria-label']) {
-        if (!element.hasAttribute(attribute)) continue;
-        const originalKey = `__hhcOriginal_${attribute}`;
-        if (element[originalKey] === undefined) element[originalKey] = element.getAttribute(attribute);
-        const original = element[originalKey];
-        if (!original || !original.trim()) continue;
-        records.push({ node: element, original, set: value => element.setAttribute(attribute, value) });
-      }
-    });
-    return records;
+  function needsTranslation(text, target) {
+    if (!text) return false;
+    const trimmed = text.trim();
+    if (trimmed.length < 2) return false;
+    if (isBrandProtected(trimmed)) return false;
+    
+    // Check if it contains English letters
+    if (!/[a-zA-Z]{2,}/.test(trimmed)) return false;
+
+    // If target is Hindi and already contains Devanagari script, skip
+    if (target === 'hi' && /[\u0900-\u097F]/.test(trimmed)) return false;
+
+    // If target is Punjabi and already contains Gurmukhi script, skip
+    if (target === 'pa' && /[\u0A00-\u0A7F]/.test(trimmed)) return false;
+
+    // If purely digits, punctuation, or phone
+    if (/^[0-9+\s\-.,()#/*]+$/.test(trimmed)) return false;
+
+    return true;
   }
 
-  async function translateBatch(records, target) {
-    const strings = records.map(record => record.original);
-    const key = cachePrefix + target + ':' + hash(strings.join('\u001f'));
+  async function fetchTranslation(text, target) {
+    const key = cachePrefix + target + ':' + hash(text);
     try {
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        const values = JSON.parse(saved);
-        if (Array.isArray(values) && values.length === records.length) {
-          records.forEach((record, index) => record.set(values[index]));
-          return;
+      const cached = localStorage.getItem(key);
+      if (cached && typeof cached === 'string') return cached;
+    } catch (_) {}
+
+    // Primary: Google clients5 API directly from client browser
+    try {
+      const url = 'https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=en&tl=' + encodeURIComponent(target) + '&q=' + encodeURIComponent(text);
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data) && typeof data[0] === 'string' && data[0].trim()) {
+          const trans = data[0].trim();
+          try { localStorage.setItem(key, trans); } catch (_) {}
+          return trans;
         }
       }
-    } catch (_) { /* Private browsing may disable storage. */ }
+    } catch (_) {}
 
-    const response = await fetch('/translate.php', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, texts: strings })
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || !Array.isArray(result.translations)) {
-      throw new Error(result.error || 'Translation service is unavailable.');
-    }
-    records.forEach((record, index) => record.set(result.translations[index] ?? record.original));
+    // Fallback: server /translate.php
     try {
-      localStorage.setItem(key, JSON.stringify(result.translations));
-    } catch (_) { /* Translation still works without a cache. */ }
-  }
-
-  async function translatePage(target) {
-    updateBrandLogos(target);
-    if (target === 'en') {
-      applying = true;
-      collect().forEach(record => record.set(record.original));
-      document.documentElement.lang = 'en';
-      document.title = originalTitle;
-      setNotice('');
-      applying = false;
-      return;
-    }
-    if (applying) return;
-    applying = true;
-    try {
-      const records = collect();
-      const batches = [];
-      let batch = [], size = 0;
-      records.forEach(record => {
-        const length = Array.from(record.original).length;
-        if (batch.length >= 128 || (batch.length && size + length > 26000)) {
-          batches.push(batch);
-          batch = [];
-          size = 0;
-        }
-        batch.push(record);
-        size += length;
+      const resp = await fetch('/translate.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target, texts: [text] })
       });
-      if (batch.length) batches.push(batch);
-      for (const group of batches) await translateBatch(group, target);
-      if (originalTitle.trim()) {
-        const [translatedTitle] = await translateStrings([originalTitle], target);
-        if (translatedTitle) document.title = translatedTitle;
+      if (resp.ok) {
+        const data = await resp.json();
+        if (Array.isArray(data.translations) && typeof data.translations[0] === 'string' && data.translations[0].trim()) {
+          const trans = data.translations[0].trim();
+          try { localStorage.setItem(key, trans); } catch (_) {}
+          return trans;
+        }
       }
-      document.documentElement.lang = target;
-      setNotice('');
-    } catch (error) {
-      console.warn('Translation warning:', error);
-      setNotice('');
+    } catch (_) {}
+
+    return text;
+  }
+
+  async function translateDynamicContent(target) {
+    if (running || target === 'en') return;
+    running = true;
+
+    try {
+      updateBrandLogos();
+
+      const items = [];
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        const node = walker.currentNode;
+        if (isExcluded(node.parentElement)) continue;
+        const val = node.nodeValue;
+        if (!node.__hhcOrig) node.__hhcOrig = val;
+        if (needsTranslation(val, target)) {
+          items.push({
+            node,
+            text: val,
+            set: (res) => { node.nodeValue = res; }
+          });
+        }
+      }
+
+      // Input attributes
+      document.body.querySelectorAll('input[placeholder],*[title],*[aria-label]').forEach(el => {
+        if (isExcluded(el)) return;
+        ['placeholder', 'title', 'aria-label'].forEach(attr => {
+          if (!el.hasAttribute(attr)) return;
+          const val = el.getAttribute(attr);
+          const origKey = '__hhcOrig_' + attr;
+          if (el[origKey] === undefined) el[origKey] = val;
+          if (needsTranslation(val, target)) {
+            items.push({
+              node: el,
+              text: val,
+              set: (res) => { el.setAttribute(attr, res); }
+            });
+          }
+        });
+      });
+
+      if (items.length === 0) return;
+
+      // Translate in parallel batches of 6
+      const uniqueTexts = [...new Set(items.map(item => item.text))];
+      const translationMap = new Map();
+
+      // Check localStorage first
+      const missing = [];
+      uniqueTexts.forEach(text => {
+        const key = cachePrefix + target + ':' + hash(text);
+        try {
+          const cached = localStorage.getItem(key);
+          if (cached && typeof cached === 'string') {
+            translationMap.set(text, cached);
+            return;
+          }
+        } catch (_) {}
+        missing.push(text);
+      });
+
+      // Fetch missing in parallel
+      const concurrency = 6;
+      for (let i = 0; i < missing.length; i += concurrency) {
+        const chunk = missing.slice(i, i + concurrency);
+        await Promise.all(chunk.map(async (text) => {
+          const trans = await fetchTranslation(text, target);
+          translationMap.set(text, trans);
+        }));
+      }
+
+      // Apply to all items
+      items.forEach(item => {
+        const translated = translationMap.get(item.text);
+        if (translated && translated !== item.text) {
+          item.set(translated);
+        }
+      });
+    } catch (err) {
+      console.warn('Dynamic translate error:', err);
     } finally {
-      applying = false;
+      running = false;
     }
   }
 
-  async function translateStrings(texts, target) {
-    const response = await fetch('/translate.php', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target, texts })
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok || !Array.isArray(result.translations)) {
-      return texts;
-    }
-    return result.translations;
-  }
-
+  // Handle language switch
   select?.addEventListener('change', () => {
     const next = new URL(window.location.href);
     next.searchParams.set('lang', select.value);
     window.location.assign(next.toString());
   });
 
-  // Ensure brand logo matches initial language
-  updateBrandLogos(language);
+  // Keep brand logo consistent on load
+  updateBrandLogos();
 
-  // Only run client-side translation if the page was NOT already server-rendered in the target language
-  const serverLang = document.documentElement.lang || 'en';
-  if (language !== 'en' && serverLang !== language) {
-    translatePage(language);
+  // Run dynamic translation if not English
+  if (language !== 'en') {
+    translateDynamicContent(language);
   }
 
-  const observer = new MutationObserver(changes => {
-    if (applying || language === 'en') return;
-    if (changes.some(change => [...change.addedNodes].some(node => node.nodeType === Node.ELEMENT_NODE || (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim())))) {
-      window.clearTimeout(observer.timer);
-      observer.timer = window.setTimeout(() => {
-        if (document.documentElement.lang !== language) {
-          translatePage(language);
-        }
-      }, 120);
+  // Observe dynamically added or expanded elements (e.g. FAQs opening, modals)
+  let timer;
+  const observer = new MutationObserver(mutations => {
+    if (language === 'en') return;
+    const hasAdditions = mutations.some(m => m.addedNodes && m.addedNodes.length > 0);
+    if (hasAdditions) {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        translateDynamicContent(language);
+      }, 150);
     }
   });
   observer.observe(document.body, { childList: true, subtree: true });

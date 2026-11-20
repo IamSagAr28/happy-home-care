@@ -265,7 +265,7 @@ $logo = brand_logo_html($lang);
           <blockquote>“<?=e(tr_testimonial($item['quote']))?>”</blockquote>
           <div class="quote-person">
             <span class="person-dot"><?=e(strtoupper(substr($item['customer_name'],0,1)))?></span>
-            <div><strong><?=e($item['customer_name'])?></strong><small><?=e(tr_testimonial_location($item['location']))?></small></div>
+            <div><strong><?=e(dynamic_translate($item['customer_name'], current_language()))?></strong><small><?=e(tr_testimonial_location($item['location']))?></small></div>
           </div>
         </article>
       <?php endforeach; ?>
