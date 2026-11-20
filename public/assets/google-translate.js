@@ -168,8 +168,9 @@
   // Ensure brand logo matches initial language
   updateBrandLogos(language);
 
-  // Always ensure client-side translation runs for non-English languages to translate any dynamic or DB elements
-  if (language !== 'en') {
+  // Only run client-side translation if the page was NOT already server-rendered in the target language
+  const serverLang = document.documentElement.lang || 'en';
+  if (language !== 'en' && serverLang !== language) {
     translatePage(language);
   }
 
