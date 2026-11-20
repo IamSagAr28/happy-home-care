@@ -621,6 +621,141 @@ function tr(string $key): string {
 }
 }
 
+if (!function_exists('dynamic_translate')) {
+function dynamic_translate(string $text, string $target): string {
+    $clean = trim($text);
+    if ($clean === '' || $target === 'en' || !in_array($target, ['es', 'pa', 'hi'], true)) {
+        return $text;
+    }
+
+    // Guard: Never translate brand names or slogans
+    $noTranslate = [
+        'happy home care',
+        'elevated care. right at home.',
+        'elevated care. right at home'
+    ];
+    if (in_array(mb_strtolower($clean, 'UTF-8'), $noTranslate, true)) {
+        return $text;
+    }
+
+    static $memCache = [];
+    $cacheKey = $target . ':' . md5($clean);
+    if (isset($memCache[$cacheKey])) {
+        return $memCache[$cacheKey];
+    }
+
+    $root = defined('ROOT_PATH') ? ROOT_PATH : dirname(__DIR__);
+    $cacheFile = $root . '/database/translations_cache.json';
+    static $diskCache = null;
+    if ($diskCache === null) {
+        $diskCache = [];
+        if (file_exists($cacheFile)) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded)) {
+                    $diskCache = $decoded;
+                }
+            }
+        }
+    }
+
+    if (isset($diskCache[$cacheKey]) && is_string($diskCache[$cacheKey]) && $diskCache[$cacheKey] !== '') {
+        $memCache[$cacheKey] = $diskCache[$cacheKey];
+        return $diskCache[$cacheKey];
+    }
+
+    $translated = null;
+
+    // 1. Google Translate engine (client=dict-chrome-ex)
+    $url = 'https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl=en&tl=' . rawurlencode($target) . '&dt=t&q=' . rawurlencode($clean);
+    $response = false;
+    if (function_exists('curl_init')) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 4,
+            CURLOPT_CONNECTTIMEOUT => 2,
+            CURLOPT_USERAGENT => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            CURLOPT_SSL_VERIFYPEER => false,
+        ]);
+        $response = curl_exec($ch);
+        $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+        if ($code < 200 || $code >= 400) {
+            $response = false;
+        }
+    }
+    if ($response === false) {
+        $ctx = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64)
+",
+                'timeout' => 4,
+                'ignore_errors' => true,
+            ]
+        ]);
+        $response = @file_get_contents($url, false, $ctx);
+    }
+
+    if ($response !== false) {
+        $data = json_decode((string)$response, true);
+        if (is_array($data) && isset($data[0]) && is_array($data[0])) {
+            $parts = [];
+            foreach ($data[0] as $part) {
+                if (isset($part[0]) && is_string($part[0])) {
+                    $parts[] = $part[0];
+                }
+            }
+            if (!empty($parts)) {
+                $translated = implode('', $parts);
+            }
+        }
+    }
+
+    // 2. Secondary fallback: MyMemory Translation API
+    if ($translated === null || trim($translated) === '') {
+        $myMemoryUrl = 'https://api.mymemory.translated.net/get?q=' . rawurlencode($clean) . '&langpair=en|' . rawurlencode($target) . '&de=admin@happyhomecare.com';
+        $resp2 = false;
+        if (function_exists('curl_init')) {
+            $ch = curl_init($myMemoryUrl);
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT => 5,
+                CURLOPT_CONNECTTIMEOUT => 3,
+                CURLOPT_USERAGENT => 'Mozilla/5.0',
+                CURLOPT_SSL_VERIFYPEER => false,
+            ]);
+            $resp2 = curl_exec($ch);
+            curl_close($ch);
+        }
+        if ($resp2 === false) {
+            $resp2 = @file_get_contents($myMemoryUrl);
+        }
+        if ($resp2 !== false) {
+            $data2 = json_decode((string)$resp2, true);
+            if (isset($data2['responseData']['translatedText']) && is_string($data2['responseData']['translatedText'])) {
+                $txt = trim($data2['responseData']['translatedText']);
+                if ($txt !== '' && stripos($txt, 'MYMEMORY WARNING') === false) {
+                    $translated = html_entity_decode($txt, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                }
+            }
+        }
+    }
+
+    if ($translated !== null && trim($translated) !== '') {
+        $memCache[$cacheKey] = $translated;
+        $diskCache[$cacheKey] = $translated;
+        @file_put_contents($cacheFile, json_encode($diskCache, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT), LOCK_EX);
+        return $translated;
+    }
+
+    return $text;
+}
+}
+
+
 if (!function_exists('tr_service_title')) {
 function tr_service_title(string $title): string {
     $lang = current_language();
@@ -657,7 +792,7 @@ function tr_service_title(string $title): string {
             'es' => 'Atención las 24 horas',
         ],
     ];
-    return $map[$title][$lang] ?? $title;
+    return $map[$title][$lang] ?? dynamic_translate($title, $lang);
 }
 }
 
@@ -697,7 +832,7 @@ function tr_service_summary(string $title, string $summary): string {
             'es' => 'Atención profesional disponible las 24 horas. Cuidado continuo durante el día y la noche, opciones de residencia y supervisión permanente.',
         ],
     ];
-    return $map[$title][$lang] ?? $summary;
+    return $map[$title][$lang] ?? dynamic_translate($summary, $lang);
 }
 }
 
@@ -732,7 +867,7 @@ function tr_faq_q(string $q): string {
             'es' => '¿Qué tipos de cuidado en el hogar ofrecen?',
         ],
     ];
-    return $map[$q][$lang] ?? $q;
+    return $map[$q][$lang] ?? dynamic_translate($q, $lang);
 }
 }
 
@@ -767,7 +902,7 @@ function tr_faq_a(string $q, string $a): string {
             'es' => 'Ofrecemos cuidado personal, de compañía, cuidado de la memoria, cuidado de relevo, apoyo postoperatorio y atención continua de 24 horas.',
         ],
     ];
-    return $map[$q][$lang] ?? $a;
+    return $map[$q][$lang] ?? dynamic_translate($a, $lang);
 }
 }
 
@@ -792,7 +927,7 @@ function tr_testimonial(string $quote): string {
             'es' => 'El cuidado de relevo nos permitió a mi esposo y a mí hacer nuestro primer viaje en años. Pudimos relajarnos de verdad.',
         ],
     ];
-    return $map[$quote][$lang] ?? $quote;
+    return $map[$quote][$lang] ?? dynamic_translate($quote, $lang);
 }
 }
 
@@ -800,7 +935,12 @@ if (!function_exists('tr_testimonial_location')) {
 function tr_testimonial_location(string $loc): string {
     $lang = current_language();
     if ($lang === 'en') return $loc;
-    return LOCATIONS_MAP[$loc][$lang] ?? $loc;
+    $map = [
+        'Austin, TX' => ['pa' => 'ਆਸਟਿਨ, ਟੈਕਸਾਸ', 'hi' => 'ऑस्टिन, टेक्सास', 'es' => 'Austin, TX'],
+        'Phoenix, AZ' => ['pa' => 'ਫੀਨਿਕਸ, ਐਰੀਜ਼ੋਨਾ', 'hi' => 'फीनिक्स, एरिज़ोना', 'es' => 'Phoenix, AZ'],
+        'Seattle, WA' => ['pa' => 'ਸਿਆਟਲ, ਵਾਸ਼ਿੰਗਟਨ', 'hi' => 'सिएटल, वाशिंगटन', 'es' => 'Seattle, WA'],
+    ];
+    return $map[$loc][$lang] ?? dynamic_translate($loc, $lang);
 }
 }
 
@@ -840,7 +980,7 @@ function tr_caregiver_role(string $role): string {
             'es' => 'Coordinador de atención',
         ],
     ];
-    return $map[$role][$lang] ?? $role;
+    return $map[$role][$lang] ?? dynamic_translate($role, $lang);
 }
 }
 
@@ -865,7 +1005,7 @@ function tr_resource_category(string $cat): string {
             'es' => 'Bienestar del cuidador',
         ],
     ];
-    return $map[$cat][$lang] ?? $cat;
+    return $map[$cat][$lang] ?? dynamic_translate($cat, $lang);
 }
 }
 
@@ -890,7 +1030,7 @@ function tr_resource_read_time(string $time): string {
             'es' => 'Guía de autocuidado',
         ],
     ];
-    return $map[$time][$lang] ?? $time;
+    return $map[$time][$lang] ?? dynamic_translate($time, $lang);
 }
 }
 
@@ -925,7 +1065,7 @@ function tr_resource_title(string $title): string {
             'es' => 'Cuidar a sus padres no debería significar descuidarse a sí mismo',
         ],
     ];
-    return $map[$title][$lang] ?? $title;
+    return $map[$title][$lang] ?? dynamic_translate($title, $lang);
 }
 }
 
@@ -960,7 +1100,7 @@ function tr_resource_summary(string $title, string $summary): string {
             'es' => 'Cuidar a un ser querido puede ocupar todo su día. Estas ideas le ayudarán a encontrar espacio para sus propias necesidades.',
         ],
     ];
-    return $map[$title][$lang] ?? $summary;
+    return $map[$title][$lang] ?? dynamic_translate($summary, $lang);
 }
 }
 
@@ -980,7 +1120,7 @@ function tr_resource_btn(string $btn): string {
             'es' => 'Hable con nosotros',
         ],
     ];
-    return $map[$btn][$lang] ?? $btn;
+    return $map[$btn][$lang] ?? dynamic_translate($btn, $lang);
 }
 }
 
@@ -1132,7 +1272,7 @@ Si se siente agotado o abrumado durante varios días, consulte con su médico. U
 ¿Necesita apoyo? Hable con nuestro equipo. Le ayudaremos a diseñar el acompañamiento ideal para su familia.',
         ],
     ];
-    return $map[$id][$lang] ?? $defaultBody;
+    return $map[$id][$lang] ?? dynamic_translate($defaultBody, $lang);
 }
 }
 
@@ -1152,7 +1292,7 @@ function tr_location_hours(string $hours): string {
             'es' => 'Todos los días — Soporte 24/7',
         ],
     ];
-    return $map[$hours][$lang] ?? $hours;
+    return $map[$hours][$lang] ?? dynamic_translate($hours, $lang);
 }
 }
 
@@ -1164,6 +1304,6 @@ function tr_location_state(string $state): string {
         'Indiana' => ['pa' => 'ਇੰਡੀਆਨਾ', 'hi' => 'इंडियाना', 'es' => 'Indiana'],
         'Arizona' => ['pa' => 'ਐਰੀਜ਼ੋਨਾ', 'hi' => 'एरिज़ोना', 'es' => 'Arizona'],
     ];
-    return $map[$state][$lang] ?? $state;
+    return $map[$state][$lang] ?? dynamic_translate($state, $lang);
 }
 }

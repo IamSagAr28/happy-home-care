@@ -265,7 +265,7 @@ $logo = brand_logo_html($lang);
           <blockquote>“<?=e(tr_testimonial($item['quote']))?>”</blockquote>
           <div class="quote-person">
             <span class="person-dot"><?=e(strtoupper(substr($item['customer_name'],0,1)))?></span>
-            <div><strong><?=e($item['customer_name'])?></strong><small><?=e($item['location'])?></small></div>
+            <div><strong><?=e($item['customer_name'])?></strong><small><?=e(tr_testimonial_location($item['location']))?></small></div>
           </div>
         </article>
       <?php endforeach; ?>
@@ -283,7 +283,7 @@ $logo = brand_logo_html($lang);
         <select name="state">
           <option value=""><?=e(tr('all_states'))?></option>
           <?php foreach (db()->query('SELECT DISTINCT state FROM locations WHERE active=1 ORDER BY state')->fetchAll() as $stateRow): ?>
-            <option value="<?=e($stateRow['state'])?>" <?=($_GET['state']??'')===$stateRow['state']?'selected':''?>><?=e($stateRow['state'])?></option>
+            <option value="<?=e($stateRow['state'])?>" <?=($_GET['state']??'')===$stateRow['state']?'selected':''?>><?=e(tr_location_state($stateRow['state']))?></option>
           <?php endforeach; ?>
         </select>
         <input name="location" value="<?=e($query)?>" placeholder="<?=e(tr('search_city_zip'))?>" aria-label="<?=e(tr('search_city_zip'))?>">
@@ -302,7 +302,7 @@ $logo = brand_logo_html($lang);
       <?php endforeach; ?>
       <div class="location-card location-coming-soon">
         <span class="pin">⌖</span>
-        <div><small><?=e(tr('coming_soon'))?></small><h3>Arizona</h3><p><?=e(tr('preparing_arizona'))?></p></div>
+        <div><small><?=e(tr('coming_soon'))?></small><h3><?=e(tr_location_state('Arizona'))?></h3><p><?=e(tr('preparing_arizona'))?></p></div>
       </div>
       <?php if (!$locations): ?>
         <p><?=e(tr('no_office'))?> <a href="#contact"><?=e(tr('contact_area'))?></a></p>

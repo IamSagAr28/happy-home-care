@@ -368,8 +368,8 @@ foreach ($clean as $str) {
         continue;
     }
 
-    // Fallback to original text safely without failing
-    $results[] = $str;
+    // Dynamic translation fallback for any database/admin or newly added content
+    $results[] = dynamic_translate($str, $target);
 }
 
 translation_reply(200, ['translations' => $results]);
